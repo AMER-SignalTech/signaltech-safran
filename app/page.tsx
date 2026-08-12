@@ -14,16 +14,15 @@ import {
   Plus, 
   Camera, 
   Check, 
-  AlertCircle,
-  X
+  AlertCircle
 } from 'lucide-react';
 
-// Client Supabase
+// Initialisation du client Supabase
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
-// Données initiales
+// Mock Data pour affichage immédiat
 const INITIAL_EQUIPMENTS = [
   { id: '1', ref: 'PAN-AK05-01', name: 'AK5 — Travaux', category: 'Danger', total: 25, available: 11, min: 5, shape: 'triangle', icon: '🚧' },
   { id: '2', ref: 'PAN-AK03-01', name: 'AK3 — Chaussée Rétrécie', category: 'Danger', total: 12, available: 4, min: 3, shape: 'triangle', icon: '🛣️' },
@@ -51,7 +50,9 @@ export default function SignalTechApp() {
     resp: '',
     building: 'Bâtiment 04',
     zone: '',
-    qty: 1
+    qty: 1,
+    startDate: '',
+    endDate: ''
   });
   const [resStatus, setResStatus] = useState<string | null>(null);
 
@@ -59,17 +60,19 @@ export default function SignalTechApp() {
   const [scanInput, setScanInput] = useState('');
   const [scanResult, setScanResult] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
 
+  // Synchronisation Supabase (Optionnelle avec Fallback)
   useEffect(() => {
     async function fetchStock() {
       if (!supabase) return;
       const { data } = await supabase.from('vw_equipment_availability').select('*');
       if (data && data.length > 0) {
-        // Synchronisation base si disponible
+        // Logique de mise à jour future
       }
     }
     fetchStock();
   }, []);
 
+  // Handlers
   const handleOpenReservation = (item: any) => {
     setSelectedEquipment(item);
     setResForm(prev => ({ ...prev, qty: 1 }));
@@ -104,7 +107,7 @@ export default function SignalTechApp() {
     if (!item) {
       setScanResult({ type: 'error', msg: `Panneau non trouvé (${scanInput})` });
     } else {
-      setScanResult({ type: 'success', msg: `Scan validé : ${item.name} — Magasin Bât. 04 (Rack A1)` });
+      setScanResult({ type: 'success', msg: `Scan validé : ${item.name} — Emplacement : Magasin Bât. 04 (Rack A1)` });
       setScanInput('');
     }
   };
@@ -127,6 +130,7 @@ export default function SignalTechApp() {
           </div>
         </div>
 
+        {/* NAVIGATION TABS */}
         <nav style={{ display: 'flex', gap: '0.5rem', backgroundColor: '#1e293b', padding: '0.25rem', borderRadius: '8px' }}>
           <button 
             onClick={() => setActiveTab('dashboard')}
@@ -149,12 +153,14 @@ export default function SignalTechApp() {
         </nav>
       </header>
 
-      {/* CONTENU */}
+      {/* CONTENU PRINCIPAL */}
       <main style={{ maxWidth: '1200px', margin: '0 auto', padding: '2rem 1.5rem' }}>
 
-        {/* DASHBOARD */}
+        {/* VUE 1 : DASHBOARD */}
         {activeTab === 'dashboard' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            
+            {/* KPIS */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem' }}>
               <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '1.25rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8', fontSize: '0.8rem', fontWeight: 700 }}>
@@ -176,18 +182,21 @@ export default function SignalTechApp() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8', fontSize: '0.8rem', fontWeight: 700 }}>
                   RETARDS RESTITUTION <Clock size={20} color="#f43f5e" />
                 </div>
-                <div style={{ fontSize: '2rem', fontWeight 800, color: '#f43f5e', marginTop: '0.5rem' }}>{INITIAL_DELAYS.length}</div>
+                <div style={{ fontSize: '2rem', fontWeight: 800, color: '#f43f5e', marginTop: '0.5rem' }}>{INITIAL_DELAYS.length}</div>
               </div>
 
               <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '1.25rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8', fontSize: '0.8rem', fontWeight: 700 }}>
-                  DISPONIBILITÉ GLOBALE <CheckCircle2 size={20} color="#34d399" />
+                  DISPONIBILITE GLOBALE <CheckCircle2 size={20} color="#34d399" />
                 </div>
-                <div style={{ fontSize: '2rem', fontWeight 800, color: '#34d399', marginTop: '0.5rem' }}>82%</div>
+                <div style={{ fontSize: '2rem', fontWeight: 800, color: '#34d399', marginTop: '0.5rem' }}>82%</div>
               </div>
             </div>
 
+            {/* SECTIONS DETAILLES */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '1.5rem' }}>
+              
+              {/* Alertes Seuil Bas */}
               <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '1.25rem' }}>
                 <h3 style={{ fontSize: '1rem', color: '#f59e0b', margin: '0 0 1rem 0', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <ShieldAlert size={18} /> Matériel sous le Seuil de Sécurité
@@ -207,6 +216,7 @@ export default function SignalTechApp() {
                 </div>
               </div>
 
+              {/* Relances Chantiers */}
               <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '1.25rem' }}>
                 <h3 style={{ fontSize: '1rem', color: '#f43f5e', margin: '0 0 1rem 0', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <Clock size={18} /> Chantiers HORS DÉLAI (Relance Auto)
@@ -225,28 +235,36 @@ export default function SignalTechApp() {
                   ))}
                 </div>
               </div>
+
             </div>
           </div>
         )}
 
-        {/* CATALOGUE */}
+        {/* VUE 2 : CATALOGUE & STOCK */}
         {activeTab === 'catalog' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-            <div style={{ position: 'relative', width: '100%' }}>
-              <Search size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
-              <input 
-                type="text" 
-                placeholder="Rechercher un panneau (ex: AK5, B1)..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                style={{ width: '100%', backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px', padding: '0.75rem 1rem 0.75rem 2.75rem', color: '#ffffff', fontSize: '0.9rem', outline: 'none' }}
-              />
+            
+            {/* BARRE RECHERCHE */}
+            <div style={{ display: 'flex', gap: '1rem' }}>
+              <div style={{ position: 'relative', flex: 1 }}>
+                <Search size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
+                <input 
+                  type="text" 
+                  placeholder="Rechercher un panneau par nom ou référence (ex: AK5, B1)..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  style={{ width: '100%', backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px', padding: '0.75rem 1rem 0.75rem 2.75rem', color: '#ffffff', fontSize: '0.9rem', outline: 'none' }}
+                />
+              </div>
             </div>
 
+            {/* GRILLE DU CATALOGUE */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1.25rem' }}>
               {filteredEquipments.map(item => (
                 <div key={item.id} style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '1.25rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: '1rem' }}>
+                  
                   <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                    {/* ICONE NORMEE VISUELLE */}
                     <div style={{ 
                       width: '70px', 
                       height: '70px', 
@@ -299,25 +317,32 @@ export default function SignalTechApp() {
                       <Plus size={16} /> Réserver
                     </button>
                   </div>
+
                 </div>
               ))}
             </div>
+
           </div>
         )}
 
-        {/* SCANNER */}
+        {/* VUE 3 : SCANNER TERRAIN */}
         {activeTab === 'scan' && (
           <div style={{ maxWidth: '500px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            
             <div style={{ textAlign: 'center' }}>
-              <h2 style={{ fontSize: '1.4rem', margin: 0 }}>Scan QR Code Terrain</h2>
-              <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '0.25rem' }}>Scannez l'étiquette au dos du panneau</p>
+              <h2 style={{ fontSize: '1.4rem', margin: 0 }}>Module de Scan QR Code</h2>
+              <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '0.25rem' }}>Scanner l'étiquette au dos du panneau lors du retrait/retour</p>
             </div>
 
-            <div style={{ aspectRatio: '1/1', backgroundColor: '#1e293b', border: '2px dashed #0284c7', borderRadius: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+            {/* VISEUR CAMERA */}
+            <div style={{ aspectRatio: '1/1', backgroundColor: '#1e293b', border: '2px dashed #0284c7', borderRadius: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden' }}>
+              <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(2,132,199,0.1), transparent, rgba(2,132,199,0.1))' }}></div>
               <Camera size={48} color="#38bdf8" />
               <span style={{ fontSize: '0.85rem', color: '#cbd5e1', marginTop: '0.5rem', fontWeight: 600 }}>Caméra Active</span>
+              <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Pointez vers le QR Code</span>
             </div>
 
+            {/* SAISIE DOUCHETTE / MANUELLE */}
             <form onSubmit={handleScanSubmit} style={{ display: 'flex', gap: '0.5rem' }}>
               <input 
                 type="text" 
@@ -331,41 +356,44 @@ export default function SignalTechApp() {
               </button>
             </form>
 
+            {/* RESULTAT DU SCAN */}
             {scanResult && (
               <div style={{ padding: '1rem', borderRadius: '8px', backgroundColor: scanResult.type === 'success' ? '#064e3b' : '#881337', border: `1px solid ${scanResult.type === 'success' ? '#10b981' : '#f43f5e'}`, color: '#ffffff', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 {scanResult.type === 'success' ? <Check size={18} /> : <AlertCircle size={18} />}
                 {scanResult.msg}
               </div>
             )}
+
           </div>
         )}
 
       </main>
 
-      {/* MODALE */}
+      {/* MODALE DE RESERVATION */}
       {reservationModalOpen && selectedEquipment && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: '1rem' }}>
           <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '16px', padding: '1.5rem', maxWidth: '500px', width: '100%', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #334155', paddingBottom: '0.75rem' }}>
               <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Réservation — {selectedEquipment.name}</h3>
-              <button onClick={() => setReservationModalOpen(false)} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer' }}><X size={20} /></button>
+              <button onClick={() => setReservationModalOpen(false)} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer' }}>X</button>
             </div>
 
             <form onSubmit={handleSubmitReservation} style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
               <div>
                 <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '0.2rem' }}>Entreprise Prestataire</label>
-                <input required type="text" placeholder="ex: SATELEC / Eiffage" value={resForm.company} onChange={e => setResForm({...resForm, company: e.target.value})} style={{ width: '100%', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', padding: '0.5rem', color: '#ffffff', fontSize: '0.85rem' }} />
+                <input required type="text" placeholder="ex: SATELEC / Eiffage" value={resForm.company} onChange={e => setResForm({...resForm, company: e.target.value})} style={{ width: '100%', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', padding: '0.5rem', color: '#ffffff', fontSize: '0.85rem', boxSizing: 'border-box' }} />
               </div>
 
               <div>
                 <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '0.2rem' }}>Responsable Chantier</label>
-                <input required type="text" placeholder="Nom Prénom" value={resForm.resp} onChange={e => setResForm({...resForm, resp: e.target.value})} style={{ width: '100%', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', padding: '0.5rem', color: '#ffffff', fontSize: '0.85rem' }} />
+                <input required type="text" placeholder="Nom Prénom" value={resForm.resp} onChange={e => setResForm({...resForm, resp: e.target.value})} style={{ width: '100%', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', padding: '0.5rem', color: '#ffffff', fontSize: '0.85rem', boxSizing: 'border-box' }} />
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
                 <div>
                   <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '0.2rem' }}>Bâtiment</label>
-                  <select value={resForm.building} onChange={e => setResForm({...resForm, building: e.target.value})} style={{ width: '100%', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', padding: '0.5rem', color: '#ffffff', fontSize: '0.85rem' }}>
+                  <select value={resForm.building} onChange={e => setResForm({...resForm, building: e.target.value})} style={{ width: '100%', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', padding: '0.5rem', color: '#ffffff', fontSize: '0.85rem', boxSizing: 'border-box' }}>
                     <option>Bâtiment 04</option>
                     <option>Bâtiment 12</option>
                     <option>Hangar Essais</option>
@@ -373,7 +401,7 @@ export default function SignalTechApp() {
                 </div>
                 <div>
                   <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '0.2rem' }}>Quantité (Max: {selectedEquipment.available})</label>
-                  <input type="number" min="1" max={selectedEquipment.available} value={resForm.qty} onChange={e => setResForm({...resForm, qty: parseInt(e.target.value) || 1})} style={{ width: '100%', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', padding: '0.5rem', color: '#ffffff', fontSize: '0.85rem' }} />
+                  <input type="number" min="1" max={selectedEquipment.available} value={resForm.qty} onChange={e => setResForm({...resForm, qty: parseInt(e.target.value) || 1})} style={{ width: '100%', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', padding: '0.5rem', color: '#ffffff', fontSize: '0.85rem', boxSizing: 'border-box' }} />
                 </div>
               </div>
 
@@ -387,6 +415,7 @@ export default function SignalTechApp() {
                 Confirmer la Réservation
               </button>
             </form>
+
           </div>
         </div>
       )}
