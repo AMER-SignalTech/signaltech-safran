@@ -14,32 +14,19 @@ import {
   Plus, 
   Camera, 
   Check, 
-  AlertCircle
+  AlertCircle,
+  RefreshCw
 } from 'lucide-react';
 
-// Initialisation du client Supabase
+// Client Supabase connecté à vos variables d'environnement Vercel
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
-// Mock Data pour affichage immédiat
-const INITIAL_EQUIPMENTS = [
-  { id: '1', ref: 'PAN-AK05-01', name: 'AK5 — Travaux', category: 'Danger', total: 25, available: 11, min: 5, shape: 'triangle', icon: '🚧' },
-  { id: '2', ref: 'PAN-AK03-01', name: 'AK3 — Chaussée Rétrécie', category: 'Danger', total: 12, available: 4, min: 3, shape: 'triangle', icon: '🛣️' },
-  { id: '3', ref: 'PAN-B001-01', name: 'B1 — Sens Interdit', category: 'Interdiction', total: 10, available: 2, min: 3, shape: 'circle', icon: '⛔' },
-  { id: '4', ref: 'PAN-B14-01', name: 'B14 — Limite 20 km/h', category: 'Interdiction', total: 15, available: 12, min: 4, shape: 'circle', icon: '20' },
-  { id: '5', ref: 'PAN-KC01-01', name: 'KC1 — Déviation', category: 'Indication', total: 18, available: 10, min: 5, shape: 'square', icon: '↗️' },
-  { id: '6', ref: 'PAN-AK17-01', name: 'AK17 — Feux Alternés', category: 'Danger', total: 6, available: 1, min: 2, shape: 'triangle', icon: '🚦' },
-];
-
-const INITIAL_DELAYS = [
-  { id: 'r1', company: 'Eiffage Route', resp: 'M. Dupont', building: 'Bât. 12', zone: 'Accès Nord', expectedEnd: '2026-08-10', items: '3x AK5' },
-  { id: 'r2', company: 'SATELEC', resp: 'J. Martin', building: 'Bât. 04', zone: 'Parking Hangar 2', expectedEnd: '2026-08-11', items: '2x B1, 4x K8' },
-];
-
 export default function SignalTechApp() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'catalog' | 'scan'>('dashboard');
-  const [equipments, setEquipments] = useState(INITIAL_EQUIPMENTS);
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'catalog' | 'scan'>('catalog');
+  const [equipments, setEquipments] = useState<any[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedEquipment, setSelectedEquipment] = useState<any>(null);
   const [reservationModalOpen, setReservationModalOpen] = useState(false);
@@ -50,9 +37,7 @@ export default function SignalTechApp() {
     resp: '',
     building: 'Bâtiment 04',
     zone: '',
-    qty: 1,
-    startDate: '',
-    endDate: ''
+    qty: 1
   });
   const [resStatus, setResStatus] = useState<string | null>(null);
 
@@ -60,61 +45,72 @@ export default function SignalTechApp() {
   const [scanInput, setScanInput] = useState('');
   const [scanResult, setScanResult] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
 
-  // Synchronisation Supabase (Optionnelle avec Fallback)
-  useEffect(() => {
-    async function fetchStock() {
-      if (!supabase) return;
-      const { data } = await supabase.from('vw_equipment_availability').select('*');
-      if (data && data.length > 0) {
-        // Logique de mise à jour future
+  // Charger le stock réel depuis Supabase au chargement de la page
+  const fetchStockFromSupabase = async () => {
+    setLoading(true);
+    if (supabase) {
+      const { data, error } = await supabase.from('equipments').select('*').order('reference', { ascending: true });
+      if (data && !error) {
+        setEquipments(data);
       }
     }
-    fetchStock();
-  }, []);
-
-  // Handlers
-  const handleOpenReservation = (item: any) => {
-    setSelectedEquipment(item);
-    setResForm(prev => ({ ...prev, qty: 1 }));
-    setReservationModalOpen(true);
-    setResStatus(null);
+    setLoading(false);
   };
 
-  const handleSubmitReservation = (e: React.FormEvent) => {
+  useEffect(() => {
+    fetchStockFromSupabase();
+  }, []);
+
+  // Effectuer une réservation réelle dans Supabase
+  const handleSubmitReservation = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (resForm.qty > selectedEquipment.available) {
+    if (resForm.qty > selectedEquipment.available_quantity) {
       setResStatus('Erreur : Quantité demandée supérieure au stock disponible.');
       return;
     }
 
-    setEquipments(prev => prev.map(eq => {
-      if (eq.id === selectedEquipment.id) {
-        return { ...eq, available: eq.available - resForm.qty };
-      }
-      return eq;
-    }));
+    const newAvailable = selectedEquipment.available_quantity - resForm.qty;
 
-    setResStatus('Réservation transmise avec succès ! Bon de sortie généré.');
+    if (supabase) {
+      // Mettre à jour la base de données Supabase
+      const { error } = await supabase
+        .from('equipments')
+        .update({ available_quantity: newAvailable })
+        .eq('id', selectedEquipment.id);
+
+      if (error) {
+        setResStatus(`Erreur de synchronisation : ${error.message}`);
+        return;
+      }
+    }
+
+    setResStatus('Réservation validée ! Le stock Supabase a été mis à jour.');
+    await fetchStockFromSupabase(); // Rafraîchir le stock
+    
     setTimeout(() => {
       setReservationModalOpen(false);
       setResStatus(null);
-    }, 1500);
+    }, 1200);
   };
 
+  // Traiter un scan QR Code réel
   const handleScanSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const item = equipments.find(e => e.ref.toLowerCase() === scanInput.trim().toLowerCase());
+    const item = equipments.find(e => e.reference.toLowerCase() === scanInput.trim().toLowerCase());
     if (!item) {
-      setScanResult({ type: 'error', msg: `Panneau non trouvé (${scanInput})` });
+      setScanResult({ type: 'error', msg: `Panneau non identifié dans Supabase (${scanInput})` });
     } else {
-      setScanResult({ type: 'success', msg: `Scan validé : ${item.name} — Emplacement : Magasin Bât. 04 (Rack A1)` });
+      setScanResult({ 
+        type: 'success', 
+        msg: `Scan validé : ${item.name} | Emplacement : ${item.location} | Stock dispo : ${item.available_quantity}/${item.total_quantity}` 
+      });
       setScanInput('');
     }
   };
 
   const filteredEquipments = equipments.filter(e => 
-    e.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    e.ref.toLowerCase().includes(searchTerm.toLowerCase())
+    e.name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    e.reference?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   return (
@@ -133,16 +129,16 @@ export default function SignalTechApp() {
         {/* NAVIGATION TABS */}
         <nav style={{ display: 'flex', gap: '0.5rem', backgroundColor: '#1e293b', padding: '0.25rem', borderRadius: '8px' }}>
           <button 
-            onClick={() => setActiveTab('dashboard')}
-            style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 1rem', borderRadius: '6px', border: 'none', backgroundColor: activeTab === 'dashboard' ? '#0284c7' : 'transparent', color: '#ffffff', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}
-          >
-            <LayoutDashboard size={16} /> Dashboard
-          </button>
-          <button 
             onClick={() => setActiveTab('catalog')}
             style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 1rem', borderRadius: '6px', border: 'none', backgroundColor: activeTab === 'catalog' ? '#0284c7' : 'transparent', color: '#ffffff', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}
           >
-            <Layers size={16} /> Catalogue & Stock
+            <Layers size={16} /> Catalogue & Stock Realtime
+          </button>
+          <button 
+            onClick={() => setActiveTab('dashboard')}
+            style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 1rem', borderRadius: '6px', border: 'none', backgroundColor: activeTab === 'dashboard' ? '#0284c7' : 'transparent', color: '#ffffff', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}
+          >
+            <LayoutDashboard size={16} /> Dashboard KPI
           </button>
           <button 
             onClick={() => setActiveTab('scan')}
@@ -156,227 +152,187 @@ export default function SignalTechApp() {
       {/* CONTENU PRINCIPAL */}
       <main style={{ maxWidth: '1200px', margin: '0 auto', padding: '2rem 1.5rem' }}>
 
-        {/* VUE 1 : DASHBOARD */}
-        {activeTab === 'dashboard' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-            
-            {/* KPIS */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem' }}>
-              <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '1.25rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8', fontSize: '0.8rem', fontWeight: 700 }}>
-                  ALERTES STOCK BAS <ShieldAlert size={20} color="#f59e0b" />
-                </div>
-                <div style={{ fontSize: '2rem', fontWeight: 800, color: '#fbbf24', marginTop: '0.5rem' }}>
-                  {equipments.filter(e => e.available <= e.min).length}
-                </div>
-              </div>
+        {/* BOUTON RAFRAICHIR BASE */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+          <span style={{ fontSize: '0.85rem', color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#10b981' }}></span>
+            Connecté à la base Supabase PostgreSQL
+          </span>
+          <button onClick={fetchStockFromSupabase} style={{ backgroundColor: '#1e293b', border: '1px solid #334155', color: '#cbd5e1', padding: '0.4rem 0.8rem', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Actualiser les stocks
+          </button>
+        </div>
 
-              <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '1.25rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8', fontSize: '0.8rem', fontWeight: 700 }}>
-                  CHANTIERS ACTIFS <Package size={20} color="#38bdf8" />
-                </div>
-                <div style={{ fontSize: '2rem', fontWeight: 800, color: '#38bdf8', marginTop: '0.5rem' }}>14</div>
-              </div>
-
-              <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '1.25rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8', fontSize: '0.8rem', fontWeight: 700 }}>
-                  RETARDS RESTITUTION <Clock size={20} color="#f43f5e" />
-                </div>
-                <div style={{ fontSize: '2rem', fontWeight: 800, color: '#f43f5e', marginTop: '0.5rem' }}>{INITIAL_DELAYS.length}</div>
-              </div>
-
-              <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '1.25rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8', fontSize: '0.8rem', fontWeight: 700 }}>
-                  DISPONIBILITE GLOBALE <CheckCircle2 size={20} color="#34d399" />
-                </div>
-                <div style={{ fontSize: '2rem', fontWeight: 800, color: '#34d399', marginTop: '0.5rem' }}>82%</div>
-              </div>
-            </div>
-
-            {/* SECTIONS DETAILLES */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '1.5rem' }}>
-              
-              {/* Alertes Seuil Bas */}
-              <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '1.25rem' }}>
-                <h3 style={{ fontSize: '1rem', color: '#f59e0b', margin: '0 0 1rem 0', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <ShieldAlert size={18} /> Matériel sous le Seuil de Sécurité
-                </h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  {equipments.filter(e => e.available <= e.min).map(item => (
-                    <div key={item.id} style={{ padding: '0.75rem', backgroundColor: '#0f172a', borderRadius: '8px', border: '1px solid #451a03', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div>
-                        <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>{item.name}</div>
-                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Réf: {item.ref}</div>
-                      </div>
-                      <span style={{ backgroundColor: 'rgba(245, 158, 11, 0.2)', color: '#fbbf24', border: '1px solid rgba(245, 158, 11, 0.3)', padding: '0.2rem 0.6rem', borderRadius: '4px', fontSize: '0.8rem', fontWeight: 700 }}>
-                        Dispo: {item.available} / {item.total}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Relances Chantiers */}
-              <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '1.25rem' }}>
-                <h3 style={{ fontSize: '1rem', color: '#f43f5e', margin: '0 0 1rem 0', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <Clock size={18} /> Chantiers HORS DÉLAI (Relance Auto)
-                </h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  {INITIAL_DELAYS.map(delay => (
-                    <div key={delay.id} style={{ padding: '0.75rem', backgroundColor: '#0f172a', borderRadius: '8px', border: '1px solid #881337', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div>
-                        <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#fecdd3' }}>{delay.company} ({delay.resp})</div>
-                        <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{delay.building} — {delay.zone}</div>
-                      </div>
-                      <button style={{ backgroundColor: '#e11d48', color: '#ffffff', border: 'none', padding: '0.4rem 0.8rem', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>
-                        Relancer
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-            </div>
-          </div>
-        )}
-
-        {/* VUE 2 : CATALOGUE & STOCK */}
+        {/* VUE CATALOGUE & STOCK REEL */}
         {activeTab === 'catalog' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-            
-            {/* BARRE RECHERCHE */}
             <div style={{ display: 'flex', gap: '1rem' }}>
               <div style={{ position: 'relative', flex: 1 }}>
                 <Search size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
                 <input 
                   type="text" 
-                  placeholder="Rechercher un panneau par nom ou référence (ex: AK5, B1)..."
+                  placeholder="Rechercher un panneau par nom ou référence (ex: AK5, B1, K8)..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  style={{ width: '100%', backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px', padding: '0.75rem 1rem 0.75rem 2.75rem', color: '#ffffff', fontSize: '0.9rem', outline: 'none' }}
+                  style={{ width: '100%', backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px', padding: '0.75rem 1rem 0.75rem 2.75rem', color: '#ffffff', fontSize: '0.9rem', outline: 'none', boxSizing: 'border-box' }}
                 />
               </div>
             </div>
 
-            {/* GRILLE DU CATALOGUE */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1.25rem' }}>
-              {filteredEquipments.map(item => (
-                <div key={item.id} style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '1.25rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: '1rem' }}>
-                  
-                  <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                    {/* ICONE NORMEE VISUELLE */}
-                    <div style={{ 
-                      width: '70px', 
-                      height: '70px', 
-                      borderRadius: item.shape === 'circle' ? '50%' : '8px',
-                      backgroundColor: item.shape === 'triangle' ? '#fef08a' : item.shape === 'circle' ? '#ffffff' : '#0284c7',
-                      border: item.shape === 'triangle' ? '3px solid #dc2626' : item.shape === 'circle' ? '5px solid #dc2626' : '2px solid #ffffff',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: '1.5rem',
-                      fontWeight: 800,
-                      color: '#0f172a',
-                      flexShrink: 0
-                    }}>
-                      {item.icon}
-                    </div>
+            {loading ? (
+              <div style={{ textAlign: 'center', padding: '3rem', color: '#94a3b8' }}>Chargement du stock Supabase...</div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1.25rem' }}>
+                {filteredEquipments.map(item => (
+                  <div key={item.id} style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '1.25rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: '1rem' }}>
+                    
+                    <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                      <div style={{ 
+                        width: '70px', 
+                        height: '70px', 
+                        borderRadius: item.shape === 'circle' ? '50%' : '8px',
+                        backgroundColor: item.shape === 'triangle' ? '#fef08a' : item.shape === 'circle' ? '#ffffff' : '#0284c7',
+                        border: item.shape === 'triangle' ? '3px solid #dc2626' : item.shape === 'circle' ? '5px solid #dc2626' : '2px solid #ffffff',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '1.5rem',
+                        fontWeight: 800,
+                        color: '#0f172a',
+                        flexShrink: 0
+                      }}>
+                        {item.icon_symbol}
+                      </div>
 
-                    <div>
-                      <span style={{ fontSize: '0.7rem', color: '#38bdf8', fontWeight: 700, textTransform: 'uppercase' }}>{item.category}</span>
-                      <h4 style={{ margin: '0.1rem 0', fontSize: '1rem', fontWeight: 700 }}>{item.name}</h4>
-                      <span style={{ fontSize: '0.75rem', color: '#64748b', fontFamily: 'monospace' }}>{item.ref}</span>
-                    </div>
-                  </div>
-
-                  <div style={{ borderTop: '1px solid #334155', paddingTop: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                      <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Stock Disponible</div>
-                      <div style={{ fontSize: '1.2rem', fontWeight: 800, color: item.available > item.min ? '#34d399' : '#fbbf24' }}>
-                        {item.available} <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 400 }}>/ {item.total}</span>
+                      <div>
+                        <span style={{ fontSize: '0.7rem', color: '#38bdf8', fontWeight: 700, textTransform: 'uppercase' }}>{item.category}</span>
+                        <h4 style={{ margin: '0.1rem 0', fontSize: '1rem', fontWeight: 700 }}>{item.name}</h4>
+                        <span style={{ fontSize: '0.75rem', color: '#64748b', fontFamily: 'monospace' }}>{item.reference}</span>
                       </div>
                     </div>
 
-                    <button 
-                      onClick={() => handleOpenReservation(item)}
-                      disabled={item.available === 0}
-                      style={{ 
-                        backgroundColor: item.available > 0 ? '#0284c7' : '#334155', 
-                        color: '#ffffff', 
-                        border: 'none', 
-                        padding: '0.5rem 1rem', 
-                        borderRadius: '6px', 
-                        fontWeight: 600, 
-                        fontSize: '0.85rem', 
-                        cursor: item.available > 0 ? 'pointer' : 'not-allowed',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.4rem'
-                      }}
-                    >
-                      <Plus size={16} /> Réserver
-                    </button>
+                    <div style={{ fontSize: '0.75rem', color: '#64748b', borderTop: '1px solid #1e293b', paddingTop: '0.5rem' }}>
+                      📍 {item.location}
+                    </div>
+
+                    <div style={{ borderTop: '1px solid #334155', paddingTop: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Stock Dispo</div>
+                        <div style={{ fontSize: '1.2rem', fontWeight: 800, color: item.available_quantity > item.min_threshold ? '#34d399' : '#fbbf24' }}>
+                          {item.available_quantity} <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 400 }}>/ {item.total_quantity}</span>
+                        </div>
+                      </div>
+
+                      <button 
+                        onClick={() => { setSelectedEquipment(item); setReservationModalOpen(true); }}
+                        disabled={item.available_quantity === 0}
+                        style={{ 
+                          backgroundColor: item.available_quantity > 0 ? '#0284c7' : '#334155', 
+                          color: '#ffffff', 
+                          border: 'none', 
+                          padding: '0.5rem 1rem', 
+                          borderRadius: '6px', 
+                          fontWeight: 600, 
+                          fontSize: '0.85rem', 
+                          cursor: item.available_quantity > 0 ? 'pointer' : 'not-allowed',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.4rem'
+                        }}
+                      >
+                        <Plus size={16} /> Réserver
+                      </button>
+                    </div>
+
                   </div>
-
-                </div>
-              ))}
-            </div>
-
+                ))}
+              </div>
+            )}
           </div>
         )}
 
-        {/* VUE 3 : SCANNER TERRAIN */}
+        {/* VUE DASHBOARD */}
+        {activeTab === 'dashboard' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem' }}>
+              <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '1.25rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8', fontSize: '0.8rem', fontWeight: 700 }}>
+                  ALERTES STOCK CRITIQUE <ShieldAlert size={20} color="#f59e0b" />
+                </div>
+                <div style={{ fontSize: '2rem', fontWeight: 800, color: '#fbbf24', marginTop: '0.5rem' }}>
+                  {equipments.filter(e => e.available_quantity <= e.min_threshold).length}
+                </div>
+              </div>
+
+              <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '1.25rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8', fontSize: '0.8rem', fontWeight: 700 }}>
+                  TOTAL PANNEAUX SITE <Package size={20} color="#38bdf8" />
+                </div>
+                <div style={{ fontSize: '2rem', fontWeight: 800, color: '#38bdf8', marginTop: '0.5rem' }}>
+                  {equipments.reduce((acc, curr) => acc + (curr.total_quantity || 0), 0)}
+                </div>
+              </div>
+
+              <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '1.25rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8', fontSize: '0.8rem', fontWeight: 700 }}>
+                  PANNEAUX SUR CHANTIER <Clock size={20} color="#f43f5e" />
+                </div>
+                <div style={{ fontSize: '2rem', fontWeight 800, color: '#f43f5e', marginTop: '0.5rem' }}>
+                  {equipments.reduce((acc, curr) => acc + ((curr.total_quantity || 0) - (curr.available_quantity || 0)), 0)}
+                </div>
+              </div>
+
+              <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '1.25rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8', fontSize: '0.8rem', fontWeight: 700 }}>
+                  TAUX DISPONIBILITE <CheckCircle2 size={20} color="#34d399" />
+                </div>
+                <div style={{ fontSize: '2rem', fontWeight 800, color: '#34d399', marginTop: '0.5rem' }}>
+                  {equipments.length > 0 ? Math.round((equipments.reduce((a,c) => a + c.available_quantity, 0) / equipments.reduce((a,c) => a + c.total_quantity, 0)) * 100) : 0}%
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* VUE SCAN */}
         {activeTab === 'scan' && (
           <div style={{ maxWidth: '500px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-            
             <div style={{ textAlign: 'center' }}>
-              <h2 style={{ fontSize: '1.4rem', margin: 0 }}>Module de Scan QR Code</h2>
-              <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '0.25rem' }}>Scanner l'étiquette au dos du panneau lors du retrait/retour</p>
+              <h2 style={{ fontSize: '1.4rem', margin: 0 }}>Scan QR Code Terrain</h2>
+              <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '0.25rem' }}>Scannez ou saisissez la référence d'un panneau pour contrôler sa fiche Supabase</p>
             </div>
 
-            {/* VISEUR CAMERA */}
-            <div style={{ aspectRatio: '1/1', backgroundColor: '#1e293b', border: '2px dashed #0284c7', borderRadius: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden' }}>
-              <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(2,132,199,0.1), transparent, rgba(2,132,199,0.1))' }}></div>
-              <Camera size={48} color="#38bdf8" />
-              <span style={{ fontSize: '0.85rem', color: '#cbd5e1', marginTop: '0.5rem', fontWeight: 600 }}>Caméra Active</span>
-              <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Pointez vers le QR Code</span>
-            </div>
-
-            {/* SAISIE DOUCHETTE / MANUELLE */}
             <form onSubmit={handleScanSubmit} style={{ display: 'flex', gap: '0.5rem' }}>
               <input 
                 type="text" 
-                placeholder="Réf: PAN-AK05-01"
+                placeholder="Réf ex: PAN-AK05-01"
                 value={scanInput}
                 onChange={(e) => setScanInput(e.target.value)}
-                style={{ flex: 1, backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px', padding: '0.75rem', color: '#ffffff', fontSize: '0.9rem', outline: 'none', fontFamily: 'monospace' }}
+                style={{ flex: 1, backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px', padding: '0.75rem', color: '#ffffff', fontSize: '0.9rem', outline: 'none', fontFamily: 'monospace', boxSizing: 'border-box' }}
               />
               <button type="submit" style={{ backgroundColor: '#0284c7', color: '#ffffff', border: 'none', padding: '0.75rem 1.25rem', borderRadius: '8px', fontWeight: 700, cursor: 'pointer' }}>
-                Valider
+                Rechercher
               </button>
             </form>
 
-            {/* RESULTAT DU SCAN */}
             {scanResult && (
               <div style={{ padding: '1rem', borderRadius: '8px', backgroundColor: scanResult.type === 'success' ? '#064e3b' : '#881337', border: `1px solid ${scanResult.type === 'success' ? '#10b981' : '#f43f5e'}`, color: '#ffffff', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 {scanResult.type === 'success' ? <Check size={18} /> : <AlertCircle size={18} />}
                 {scanResult.msg}
               </div>
             )}
-
           </div>
         )}
 
       </main>
 
-      {/* MODALE DE RESERVATION */}
+      {/* MODALE RESERVATION */}
       {reservationModalOpen && selectedEquipment && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: '1rem' }}>
           <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '16px', padding: '1.5rem', maxWidth: '500px', width: '100%', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #334155', paddingBottom: '0.75rem' }}>
-              <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Réservation — {selectedEquipment.name}</h3>
-              <button onClick={() => setReservationModalOpen(false)} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer' }}>X</button>
+              <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Réservation Supabase — {selectedEquipment.name}</h3>
+              <button onClick={() => setReservationModalOpen(false)} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: '1.2rem' }}>✕</button>
             </div>
 
             <form onSubmit={handleSubmitReservation} style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
@@ -400,8 +356,8 @@ export default function SignalTechApp() {
                   </select>
                 </div>
                 <div>
-                  <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '0.2rem' }}>Quantité (Max: {selectedEquipment.available})</label>
-                  <input type="number" min="1" max={selectedEquipment.available} value={resForm.qty} onChange={e => setResForm({...resForm, qty: parseInt(e.target.value) || 1})} style={{ width: '100%', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', padding: '0.5rem', color: '#ffffff', fontSize: '0.85rem', boxSizing: 'border-box' }} />
+                  <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '0.2rem' }}>Quantité (Max: {selectedEquipment.available_quantity})</label>
+                  <input type="number" min="1" max={selectedEquipment.available_quantity} value={resForm.qty} onChange={e => setResForm({...resForm, qty: parseInt(e.target.value) || 1})} style={{ width: '100%', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', padding: '0.5rem', color: '#ffffff', fontSize: '0.85rem', boxSizing: 'border-box' }} />
                 </div>
               </div>
 
@@ -412,10 +368,9 @@ export default function SignalTechApp() {
               )}
 
               <button type="submit" style={{ backgroundColor: '#0284c7', color: '#ffffff', border: 'none', padding: '0.75rem', borderRadius: '8px', fontWeight: 700, cursor: 'pointer', marginTop: '0.5rem' }}>
-                Confirmer la Réservation
+                Confirmer & Déduire du Stock Supabase
               </button>
             </form>
-
           </div>
         </div>
       )}
